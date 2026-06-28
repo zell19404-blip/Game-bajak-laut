@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pirate Adventure - Enemy Update</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; background: #87CEEB; margin: 20px auto; border: 4px solid #fff; }
+        .ui { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); color: white; text-align: center; width: 100%; pointer-events: none; }
+        .stats { font-size: 20px; font-weight: bold; text-shadow: 2px 2px #000; }
+    </style>
+</head>
+<body>
+    <div class="ui">
+        <div class="stats">
+            HP: <span id="hp">3</span> | SKOR: <span id="score">0</span>
+        </div>
+        <div style="font-size: 12px;">Panah/WASD: Gerak | Spasi: Tebas Pedang</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const hpEl = document.getElementById('hp');
+const scoreEl = document.getElementById('score');
+
+
+canvas.width = 800;
+canvas.height = 400;
+
+
+// Konstanta Game
+const GRAVITY = 0.5;
+const TILE_SIZE = 40;
+let score = 0;
+let gameOver = false;
+
+
+// Objek Player
+const player = {
+    x: 80, y: 200, width: 30, height: 40,
+    velX: 0, velY: 0, speed: 5, jumpStrength: -10,
+    grounded: false, facing: 'right',
+    attacking: false, attackTimer: 0, hp: 3, invulnerable: 0
+};
+
+
+// Map (1=Tanah, 2=Box, 3=Pohon)
+const map = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,2,0,0,0,0,0,0,2,2,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,2,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,1,1,1,0,0,1,1,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+
+// Musuh
+const enemies = [
+    { x: 400, y: 200, width: 30, height: 30, type: 'slime', speed: 2, range: 100, startX: 400, alive: true },
+    { x: 600, y: 200, width: 30, height: 40, type: 'pirate', speed: 3, range: 150, startX: 600, alive: true }
+];
+
+
+const keys = {};
+window.addEventListener('keydown', e => { 
+    keys[e.code] = true;
+    if(e.code === 'Space' && !player.attacking) { player.attacking = true; player.attackTimer = 15; }
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+
+function drawPirate(p, color1, color2, isEnemy = false) {
+    if (p.invulnerable % 2 !== 0) return; // Efek kedip saat kena hit
+
+
+    ctx.save();
+    if (isEnemy && p.speed > 0) { // Balik arah musuh
+        ctx.translate(p.x + p.width/2, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-(p.x + p.width/2), 0);
+    }
+
+
+    // Body
+    ctx.fillStyle = color1; 
+    ctx.fillRect(p.x, p.y + 10, p.width, p.height - 15);
+    // Pants
+    ctx.fillStyle = "#333";
+    ctx.fillRect(p.x, p.y + 25, p.width, 10);
+    // Bandana
+    ctx.fillStyle = color2;
+    ctx.fillRect(p.x, p.y, p.width, 12);
+    // Sword
+    if (isEnemy || (p === player && p.attacking)) {
+        ctx.fillStyle = "#bdc3c7";
+        let sx = (isEnemy) ? p.x - 15 : (p.facing === 'right' ? p.x + p.width : p.x - 15);
+        ctx.fillRect(sx, p.y + 15, 15, 5);
+    }
+    ctx.restore();
+}
+
+
+function drawSlime(s) {
+    ctx.fillStyle = "#2ecc71";
+    ctx.beginPath();
+    ctx.arc(s.x + 15, s.y + 20, 15, 0, Math.PI, true);
+    ctx.fill();
+    ctx.fillStyle = "white";
+    ctx.fillRect(s.x + 5, s.y + 10, 5, 5);
+    ctx.fillRect(s.x + 20, s.y + 10, 5, 5);
+}
+
+
+function update() {
+    if(gameOver) return;
+
+
+    // Player Movement
+    if (keys['ArrowRight'] || keys['KeyD']) { player.velX = player.speed; player.facing = 'right'; }
+    else if (keys['ArrowLeft'] || keys['KeyA']) { player.velX = -player.speed; player.facing = 'left'; }
+    else { player.velX *= 0.8; }
+
+
+    if ((keys['ArrowUp'] || keys['KeyW']) && player.grounded) {
+        player.velY = player.jumpStrength;
+        player.grounded = false;
+    }
+
+
+    player.velY += GRAVITY;
+    player.x += player.velX;
+    player.y += player.velY;
+
+
+    if (player.invulnerable > 0) player.invulnerable--;
+    if (player.attackTimer > 0) player.attackTimer--;
+    else player.attacking = false;
+
+
+    // Map Collision
+    player.grounded = false;
+    for (let row = 0; row < map.length; row++) {
+        for (let col = 0; col < map[row].length; col++) {
+            if (map[row][col] === 1 || map[row][col] === 2) {
+                let tx = col * TILE_SIZE;
+                let ty = row * TILE_SIZE;
+                
+                // Cek tabrakan kaki
+                if (player.x < tx + TILE_SIZE && player.x + player.width > tx &&
+                    player.y + player.height > ty && player.y + player.height < ty + 20) {
+                    player.y = ty - player.height;
+                    player.velY = 0;
+                    player.grounded = true;
+                }
+                
+                // Hit box dengan pedang
+                if (map[row][col] === 2 && player.attacking) {
+                    let ax = player.facing === 'right' ? player.x + player.width : player.x - 20;
+                    if (ax < tx + TILE_SIZE && ax + 20 > tx && player.y < ty + TILE_SIZE && player.y + 40 > ty) {
+                        map[row][col] = 0;
+                        score += 50;
+                        scoreEl.innerText = score;
+                    }
+                }
+            }
+        }
+    }
+
+
+    // Update Musuh
+    enemies.forEach(en => {
+        if (!en.alive) return;
+
+
+        // Patroli
+        en.x += en.speed;
+        if (Math.abs(en.x - en.startX) > en.range) en.speed *= -1;
+
+
+        // Cek kena pukul pemain
+        if (player.attacking) {
+            let ax = player.facing === 'right' ? player.x + player.width : player.x - 20;
+            if (ax < en.x + en.width && ax + 20 > en.x && player.y < en.y + en.height && player.y + 40 > en.y) {
+                en.alive = false;
+                score += 100;
+                scoreEl.innerText = score;
+            }
+        }
+
+
+        // Cek nabrak pemain
+        if (player.x < en.x + en.width && player.x + player.width > en.x &&
+            player.y < en.y + en.height && player.y + player.height > en.y) {
+            if (player.invulnerable <= 0) {
+                player.hp--;
+                player.invulnerable = 60;
+                hpEl.innerText = player.hp;
+                if (player.hp <= 0) {
+                    alert("GAME OVER! Skor Anda: " + score);
+                    location.reload();
+                }
+            }
+        }
+    });
+
+
+    // Batas Layar
+    if (player.y > canvas.height) { player.hp = 0; hpEl.innerText = 0; alert("Jatuh ke Jurang! Game Over."); location.reload(); }
+    if (player.x < 0) player.x = 0;
+    if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+}
+
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+
+    // Draw Map
+    for (let row = 0; row < map.length; row++) {
+        for (let col = 0; col < map[row].length; col++) {
+            let tx = col * TILE_SIZE;
+            let ty = row * TILE_SIZE;
+            if (map[row][col] === 1) {
+                ctx.fillStyle = "#2ecc71"; ctx.fillRect(tx, ty, TILE_SIZE, 10);
+                ctx.fillStyle = "#795548"; ctx.fillRect(tx, ty + 10, TILE_SIZE, TILE_SIZE-10);
+            } else if (map[row][col] === 2) {
+                ctx.fillStyle = "#d35400"; ctx.fillRect(tx+4, ty+4, TILE_SIZE-8, TILE_SIZE-8);
+                ctx.fillStyle = "#fff"; ctx.fillText("?", tx+17, ty+25);
+            } else if (map[row][col] === 3) {
+                ctx.fillStyle = "#5d4037"; ctx.fillRect(tx+15, ty, 10, TILE_SIZE);
+                ctx.fillStyle = "#27ae60"; ctx.beginPath(); ctx.arc(tx+20, ty, 25, 0, Math.PI*2); ctx.fill();
+            }
+        }
+    }
+
+
+    // Draw Musuh
+    enemies.forEach(en => {
+        if (en.alive) {
+            if (en.type === 'slime') drawSlime(en);
+            else drawPirate(en, "#4b0082", "#000", true);
+        }
+    });
+
+
+    // Draw Player
+    drawPirate(player, "#F5F5DC", "#e74c3c");
+
+
+    requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+
+draw();
+</script>
+</body>
+</html>
